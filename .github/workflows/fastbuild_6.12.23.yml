@@ -270,6 +270,18 @@ jobs:
             curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
             echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@cctv18"' >> ./common/arch/arm64/configs/gki_defconfig
             cd ./KernelSU
+            # 上游 a864d15a（2026-10-25）新增 priority uid filter 功能，驱动里无条件调用
+            #   CMD_SUSFS_SET_PRIORITY_UID_FILTER / susfs_set_priority_uid_filter / susfs_parse_priority_app_strings
+            # 这些符号必须由配套的内核 SUSFS 补丁提供，而本流水线使用的 susfs4oki（oki-android16-6.12）
+            # 尚未包含该功能，实测编译报 undeclared identifier。故固定到该提交的父提交（2026-10-21），
+            # 只回退这一个提交，其余更新全部保留。等 susfs4oki 跟上后可删掉这段。
+            SUKISU_PIN=ce75122bec7423e0f1fa06e3e9a174085c5231ab
+            if git cat-file -e "${SUKISU_PIN}^{commit}" 2>/dev/null; then
+              git checkout -q "$SUKISU_PIN"
+              echo "已固定 SukiSU 到 $SUKISU_PIN（规避尚未配套的 priority uid filter）"
+            else
+              echo "::warning::找不到 $SUKISU_PIN，沿用分支 HEAD；若编译报 priority uid filter 相关错误即为此原因"
+            fi
             # 生成自定义版本号（基于提交计数）, 失败时使用 114514
             KSU_VERSION=$(expr $(git rev-list --count main) + 10606 2>/dev/null || echo 114514)
             # 存储版本号到 GitHub 环境变量
