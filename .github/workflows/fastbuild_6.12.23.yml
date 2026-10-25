@@ -381,6 +381,33 @@ jobs:
               write(p, s.replace(old, new, 1))
               print('[patch] super_access.c: cb_mutex guarded out for 6.12+')
 
+          # ---- 3) kernel/Makefile：6.12 上关闭 SUSFS 时 include 路径失效 ----
+          # 上游原文：
+          #   ifeq ($(CONFIG_KSU_SUSFS), y)
+          #   ## Since there is still a build error for 6.12 as $(src) returns absolute path,
+          #   ## so here we just hardcode it
+          #   ccflags-y += -I$(srctree)/drivers/kernelsu -I$(srctree)/drivers/kernelsu/include
+          #   else
+          #   ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include
+          #   endif
+          # 6.12 上 $(src) 是绝对路径，KSU_KERNEL_DIR := $(srctree)/$(src) 拼接后失效，
+          # 于是 kernel_includes.h:77 的 #include "arch.h" 找不到 kernel/include/arch.h。
+          # 上游只给 SUSFS 分支做了硬编码，else 分支漏了。这里补齐。
+          p = 'kernel/Makefile'
+          s = read(p)
+          old3 = ('else\n'
+                  'ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include\n'
+                  'endif')
+          new3 = ('else\n'
+                  '# 6.12: $(src) is absolute, KSU_KERNEL_DIR becomes invalid, so hardcode like the SUSFS branch\n'
+                  'ccflags-y += -I$(srctree)/drivers/kernelsu -I$(srctree)/drivers/kernelsu/include\n'
+                  'endif')
+          if old3 not in s:
+              print('[patch] kernel/Makefile: else branch already fixed, skip')
+          else:
+              write(p, s.replace(old3, new3, 1))
+              print('[patch] kernel/Makefile: else branch -> hardcoded include path for 6.12')
+
           # ---- 校验，避免"打了但没生效" ----
           assert '&ksu_lsmid' in read('kernel/hook/lsm_hook.c')
           print('[ok] SukiSU 6.12 compat applied')
