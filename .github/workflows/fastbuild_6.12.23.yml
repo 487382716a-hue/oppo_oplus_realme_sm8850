@@ -314,6 +314,33 @@ jobs:
             echo "已选择无内置KernelSU模式，跳过KernelSU配置..."
           fi
 
+      # KernelSU Next 的源码是按「外置模块」模式组织的（kernel/Makefile 里是
+      #   make -C $(KDIR) M=$(MDIR) src=$(MDIR) modules），它的 kernel/Kbuild 一条 -I 都没有。
+      # 而本流水线是 in-tree 编译（setup.sh 把 kernel/ 软链接到 common/drivers/kernelsu），于是：
+      #   compat/samsung_kdp.c:14: 'ksu_samsung_kdp.h' not found   （在 kernel/include/）
+      #   compat/samsung_defex.c:8: 'klog.h' not found             （在 kernel/include/）
+      #   policy/allowlist.h:6:  'uapi/app_profile.h' not found    （在仓库根 uapi/，不在 kernel/ 下）
+      # 关键：setup.sh 只软链接了 kernel/，仓库根的 uapi/ 完全丢失 —— 这是结构性问题，与 6.12 无关。
+      # 这里补两件事：把 uapi/ 复制进 kernel/uapi/，并给 Kbuild 加 include 路径。
+      - name: 修复 KernelSU Next 的 in-tree 包含路径
+        if: ${{ github.event.inputs.ksu_type == 'ksunext' }}
+        run: |
+          cd kernel_workspace
+          if [ ! -d KernelSU-Next/kernel ]; then
+            echo "::error::KernelSU-Next/kernel 不存在，setup.sh 可能失败"
+            ls -d KernelSU* 2>/dev/null || true
+            exit 1
+          fi
+          mkdir -p KernelSU-Next/kernel/uapi
+          cp -a KernelSU-Next/uapi/. KernelSU-Next/kernel/uapi/
+          if ! grep -q 'drivers/kernelsu/include' KernelSU-Next/kernel/Kbuild; then
+            sed -i '1i ccflags-y += -I$(srctree)/drivers/kernelsu -I$(srctree)/drivers/kernelsu/include' KernelSU-Next/kernel/Kbuild
+          fi
+          echo "[ok] KernelSU Next include 路径已补齐"
+          head -3 KernelSU-Next/kernel/Kbuild
+          echo "--- kernel/uapi 内容 ---"
+          ls KernelSU-Next/kernel/uapi/ | head -8
+
       # SukiSU-Ultra 的 builtin 分支是原生 KernelSU 驱动，只适配到 6.1 左右。
       # 在 6.12 上有两处源码级不兼容（本地编译器实测报错，非推测）：
       #   1) security_add_hooks() 自 6.12 起第三参由 const char * 改为 const struct lsm_id *
