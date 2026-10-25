@@ -408,6 +408,28 @@ jobs:
               write(p, s.replace(old3, new3, 1))
               print('[patch] kernel/Makefile: else branch -> hardcoded include path for 6.12')
 
+          # ---- 4) sulog/event.c：非 SUSFS 分支的 user_arg_ptr 传参类型 ----
+          # ksu_sulog_capture 有两个定义（#ifdef CONFIG_KSU_SUSFS 从 93 行到 360 行）：
+          #   SUSFS 版(172):   struct user_arg_ptr *argv_user   —— 指针
+          #   非SUSFS 版(287): const struct user_arg_ptr argv   —— 按值
+          # 而共用调用点(377) 用的 USER_ARG_NULL = user_arg_null_ptr() 返回指针，
+          # 只有 SUSFS 版匹配 → 非 SUSFS 构建报 "passing 'struct user_arg_ptr *' to
+          # parameter of incompatible type 'struct user_arg_ptr'; dereference with *"。
+          p = 'kernel/sulog/event.c'
+          s = read(p)
+          old4 = '    pending = ksu_sulog_capture(KSU_SULOG_EVENT_IOCTL_GRANT_ROOT, NULL, USER_ARG_NULL, gfp);'
+          new4 = ('#ifdef CONFIG_KSU_SUSFS\n'
+                  '    pending = ksu_sulog_capture(KSU_SULOG_EVENT_IOCTL_GRANT_ROOT, NULL, USER_ARG_NULL, gfp);\n'
+                  '#else\n'
+                  '    /* non-SUSFS signature takes it by value */\n'
+                  '    pending = ksu_sulog_capture(KSU_SULOG_EVENT_IOCTL_GRANT_ROOT, NULL, *USER_ARG_NULL, gfp);\n'
+                  '#endif')
+          if old4 not in s:
+              print('[patch] sulog/event.c: call site already fixed/absent, skip')
+          else:
+              write(p, s.replace(old4, new4, 1))
+              print('[patch] sulog/event.c: deref USER_ARG_NULL for non-SUSFS build')
+
           # ---- 校验，避免"打了但没生效" ----
           assert '&ksu_lsmid' in read('kernel/hook/lsm_hook.c')
           print('[ok] SukiSU 6.12 compat applied')
